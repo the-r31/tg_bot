@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import importlib.util
+import os
 import tempfile
 import time
 from collections import OrderedDict
@@ -178,17 +179,34 @@ async def handle_link(message: Message) -> None:
             url_locks[url] = (current_lock, users - 1)
 
 
-async def main() -> None:
+def check_configuration() -> None:
     if not BOT_TOKEN:
         raise RuntimeError(".env fayliga BOT_TOKEN=... kiriting.")
     if importlib.util.find_spec("gallery_dl") is None:
         logging.warning("gallery-dl o'rnatilmagan: rasm/albom yuklash cheklangan. pip install -r requirements.txt bajaring.")
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+async def main() -> None:
+    check_configuration()
     async with Bot(token=BOT_TOKEN, session=AiohttpSession(timeout=180)) as bot:
         dispatcher = Dispatcher()
         dispatcher.include_router(router)
+        await bot.delete_webhook(drop_pending_updates=False)
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types(), close_bot_session=False)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if os.getenv("RENDER_EXTERNAL_URL") or os.getenv("WEBHOOK_BASE_URL"):
+        from aiohttp import web
+        from web_server import create_app, webhook_settings
+
+        check_configuration()
+        url, secret, port = webhook_settings(os.environ, BOT_TOKEN)
+        bot = Bot(token=BOT_TOKEN, session=AiohttpSession(timeout=180))
+        dispatcher = Dispatcher()
+        dispatcher.include_router(router)
+        logging.info("Starting webhook server on 0.0.0.0:%s", port)
+        web.run_app(create_app(bot, dispatcher, url, secret), host="0.0.0.0", port=port, access_log=None)
+    else:
+        asyncio.run(main())

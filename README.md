@@ -16,7 +16,28 @@ Virtual muhit bo'lmasa, oldin `python -m venv venv` bajaring.
 almashtirmang: `BOT_TOKEN` qiymatini saqlang. Bir token bilan bir vaqtda bitta
 polling jarayonini ishlating. Terminal yopilsa bot ham to'xtaydi.
 
-## Ishlash tartibi
+## Render Web Service
+
+Yangilangan `main.py`, `web_server.py` va `requirements.txt` fayllarini GitHub
+repo'ga yuboring va Render'da **Manual Deploy → Deploy latest commit** bosing.
+
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `python main.py`
+- Environment: `BOT_TOKEN` qiymatini kiriting.
+- Health Check Path: `/health`
+
+Render `RENDER_EXTERNAL_URL` va `PORT`ni avtomatik beradi. Kod shu URL mavjud
+bo'lsa webhook rejimini tanlaydi, `0.0.0.0:$PORT`da HTTP server ochadi va Telegram
+webhook'ini ro'yxatdan o'tkazadi. `WEBHOOK_SECRET` ixtiyoriy: berilmasa bot tokenidan
+HMAC orqali barqaror maxfiy qiymat olinadi. So'rovlar shu secret orqali tekshiriladi.
+Render bo'lmagan hostingda `WEBHOOK_BASE_URL=https://your-host.example` kiriting.
+
+Webhook Telegramga tez javob beradi, yuklash fonda davom etadi. Free hosting
+uxlaganda birinchi xabar kechikishi mumkin. Qayta deploy/restart paytida fondagi
+ishlar yo'qolishi mumkin; bu holatda linkni qayta yuboring. Doimiy navbat yo'q.
+Mahalliy polling nusxasini bir vaqtda ishga tushirmang: u webhook'ni o'chiradi.
+
+## Ishlash tafsilotlari
 
 - 3 ta ish parallel; jami 20 ta faol/navbatdagi so'rov. Har foydalanuvchiga bitta ish.
 - Video 720p gacha (yt-dlp), fayl 49 MiB gacha, postdan 10 tagacha media.
