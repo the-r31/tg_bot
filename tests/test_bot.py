@@ -99,6 +99,9 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.gather(main.handle_link(first), main.handle_link(second))
             self.assertEqual(download.await_count, 1)
         self.assertEqual(second.answer_video.call_args.args[0], "telegram-id")
+        for item in (first, second):
+            self.assertEqual(item.answer_video.call_args.kwargs["caption"], "https://youtu.be/test")
+            item.answer.return_value.delete.assert_awaited_once()
         self.assertFalse(main.active_users)
         self.assertFalse(main.url_locks)
 
@@ -115,6 +118,3 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
-        for item in (first, second):
-            self.assertEqual(item.answer_video.call_args.kwargs["caption"], "Manba: https://youtu.be/test")
-            item.answer.return_value.delete.assert_awaited_once()

@@ -59,7 +59,7 @@ def file_kind(path: Path) -> str:
 
 
 async def send_media(message: Message, items: list[tuple[str, object]], source_url: str = "") -> list[tuple[str, str]]:
-    caption = f"Manba: {source_url}" if source_url else None
+    caption = source_url or None
     sent = []
     index = 0
     while index < len(items):
