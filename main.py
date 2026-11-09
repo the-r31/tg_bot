@@ -58,7 +58,8 @@ def file_kind(path: Path) -> str:
     return "document"
 
 
-async def send_media(message: Message, items: list[tuple[str, object]]) -> list[tuple[str, str]]:
+async def send_media(message: Message, items: list[tuple[str, object]], source_url: str = "") -> list[tuple[str, str]]:
+    caption = f"Manba: {source_url}" if source_url else None
     sent = []
     index = 0
     while index < len(items):
@@ -69,7 +70,7 @@ async def send_media(message: Message, items: list[tuple[str, object]]) -> list[
                 break
             batch.append((kind, value))
         if len(batch) >= 2:
-            media = [InputMediaPhoto(media=value) if kind == "photo" else InputMediaVideo(media=value)
+            media = [InputMediaPhoto(media=value, caption=caption) if kind == "photo" else InputMediaVideo(media=value, caption=caption)
                      for kind, value in batch]
             try:
                 sent.extend(await message.answer_media_group(media=media))
@@ -80,15 +81,15 @@ async def send_media(message: Message, items: list[tuple[str, object]]) -> list[
         kind, value = items[index]
         try:
             if kind == "photo":
-                result = await message.answer_photo(value)
+                result = await message.answer_photo(value, caption=caption)
             elif kind == "video":
-                result = await message.answer_video(value)
+                result = await message.answer_video(value, caption=caption)
             else:
-                result = await message.answer_document(value)
+                result = await message.answer_document(value, caption=caption)
         except TelegramBadRequest:
             if not isinstance(value, FSInputFile) or kind == "document":
                 raise
-            result = await message.answer_document(value)
+            result = await message.answer_document(value, caption=caption)
         sent.append(result)
         index += 1
     result = []
@@ -142,7 +143,7 @@ async def handle_link(message: Message) -> None:
                 if cached:
                     await edit_status(status, "Tayyor media yuborilmoqda...")
                     try:
-                        await send_media(message, cached)
+                        await send_media(message, cached, url)
                     except TelegramBadRequest:
                         cache.pop(url, None)
                         await edit_status(status, "Kesh yangilanmoqda. Linkni qayta yuboring.")
@@ -152,10 +153,11 @@ async def handle_link(message: Message) -> None:
                     with tempfile.TemporaryDirectory(dir=DOWNLOADS_DIR) as directory:
                         paths = await download_media(url, Path(directory))
                         await edit_status(status, f"{len(paths)} ta media tayyor. Telegramga yuborilmoqda...")
-                        uploaded = await send_media(message, [(file_kind(p), FSInputFile(p)) for p in paths])
+                        uploaded = await send_media(message, [(file_kind(p), FSInputFile(p)) for p in paths], url)
                         if uploaded:
                             cache_put(url, uploaded)
-                await edit_status(status, f"Tayyor! ✅ {time.monotonic() - started:.1f} soniya")
+                with suppress(TelegramAPIError):
+                    await status.delete()
                 logging.info("Request completed in %.1fs; cache=%s", time.monotonic() - started, bool(cached))
     except TimeoutError:
         if status:

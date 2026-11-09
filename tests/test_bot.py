@@ -92,7 +92,7 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
             return [path]
         def message(user):
             return SimpleNamespace(text="https://youtu.be/test", from_user=SimpleNamespace(id=user),
-                                   answer=AsyncMock(return_value=SimpleNamespace(edit_text=AsyncMock())),
+                                   answer=AsyncMock(return_value=SimpleNamespace(edit_text=AsyncMock(), delete=AsyncMock())),
                                    answer_video=AsyncMock(return_value=sent()))
         first, second = message(1), message(2)
         with patch.object(main, "download_media", side_effect=fake_download) as download:
@@ -115,3 +115,6 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+        for item in (first, second):
+            self.assertEqual(item.answer_video.call_args.kwargs["caption"], "Manba: https://youtu.be/test")
+            item.answer.return_value.delete.assert_awaited_once()
