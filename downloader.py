@@ -1,5 +1,6 @@
 """Bounded downloader processes: cancelling a job also stops its ffmpeg children."""
 import asyncio
+import logging
 import os
 import re
 import signal
@@ -25,6 +26,31 @@ EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic",
 
 class MediaError(Exception):
     pass
+
+
+class DownloaderError(MediaError):
+    def __init__(self, category: str):
+        self.category = category
+        super().__init__(category)
+
+
+def error_category(output: bytes) -> str:
+    text = output.decode("utf-8", errors="replace").lower()
+    if "no module named" in text:
+        return "missing_dependency"
+    if "429" in text or "too many requests" in text or "rate limit" in text:
+        return "rate_limited"
+    if any(value in text for value in ("login", "log in", "sign in", "401", "403", "cookies", "checkpoint")):
+        return "access_denied"
+    return "download_failed"
+
+
+async def read_diagnostics(stream) -> bytes:
+    # Drain the pipe to avoid deadlocks; retain only a bounded tail in memory.
+    tail = b""
+    while chunk := await stream.read(4096):
+        tail = (tail + chunk)[-16384:]
+    return tail
 
 
 def folder_size(folder: Path) -> int:
@@ -80,8 +106,9 @@ async def run_downloader(args: list[str], folder: Path, timeout: float) -> int:
     kwargs = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {"start_new_session": True}
     # Do not retain cookies, tokens, or signed CDN URLs in logs.
     process = await asyncio.create_subprocess_exec(
-        sys.executable, *args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kwargs,
+        sys.executable, *args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, **kwargs,
     )
+    diagnostics = asyncio.create_task(read_diagnostics(process.stderr))
     try:
         async with asyncio.timeout(timeout):
             while process.returncode is None:
@@ -93,9 +120,15 @@ async def run_downloader(args: list[str], folder: Path, timeout: float) -> int:
                 total = folder_size(folder)
                 if total > MAX_FILE_SIZE_BYTES * MAX_MEDIA_ITEMS * 2:
                     raise MediaError("Yuklama juda katta. Qisqaroq video yoki kichikroq albom yuboring.")
+            output = await diagnostics
+        if process.returncode:
+            # Only a fixed category is exposed, never raw URLs, cookies or tokens.
+            raise DownloaderError(error_category(output))
         return process.returncode
     finally:
         await stop_process(process)
+        diagnostics.cancel()
+        await asyncio.gather(diagnostics, return_exceptions=True)
 
 
 def media_files(folder: Path) -> list[Path]:
@@ -115,7 +148,7 @@ async def download_media(url: str, folder: Path) -> list[Path]:
         "--concurrent-fragments", "4", "--max-filesize", str(MAX_FILE_SIZE_BYTES),
         "--match-filters", "!is_live", "--ffmpeg-location", imageio_ffmpeg.get_ffmpeg_exe(),
         "--merge-output-format", "mp4", "--restrict-filenames",
-        "-f", "b[height<=720][ext=mp4]/bv[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720]/bv[height<=720]+ba",
+        "-f", "bv[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv[height<=1080]+ba/b[height<=1080]",
         "-o", str(folder / "video" / "%(playlist_index)03d-%(id)s.%(ext)s"),
     ]
     gallery = [
@@ -136,17 +169,35 @@ async def download_media(url: str, folder: Path) -> list[Path]:
     photo_first = host.endswith(("instagram.com", "pinterest.com", "pin.it")) or "/photo/" in url
     strategies = [(gallery, "gallery"), (yt, "video")] if photo_first else [(yt, "video"), (gallery, "gallery")]
     started = time.monotonic()
-    for args, subfolder in strategies:
+    failures = []
+    for index, (args, subfolder) in enumerate(strategies):
         remaining = DOWNLOAD_TIMEOUT - (time.monotonic() - started)
         if remaining <= 0:
             raise TimeoutError
-        code = await run_downloader(args + [url], folder, remaining)
+        # Reserve time for the fallback even when the first extractor hangs.
+        budget = remaining / (len(strategies) - index)
+        attempt_started = time.monotonic()
+        try:
+            code = await run_downloader(args + [url], folder, budget)
+        except (TimeoutError, DownloaderError) as exc:
+            category = "timeout" if isinstance(exc, TimeoutError) else exc.category
+            failures.append(category)
+            logging.warning("Downloader=%s outcome=%s elapsed=%.1fs", subfolder, category, time.monotonic() - attempt_started)
+            continue
         if code != 0:
             # Do not report a failed/partial download as a complete album.
             continue
         paths = media_files(folder / subfolder)
         if paths:
             return paths
+    if "rate_limited" in failures:
+        raise MediaError("Sayt so'rovlarni vaqtincha chekladi. Linkni ketma-ket yubormang, keyinroq urinib ko'ring.")
+    if "access_denied" in failures:
+        raise MediaError("Sayt kirishni rad etdi yoki login talab qilyapti. Bot egasi cookies sozlamasini tekshirishi kerak.")
+    if "missing_dependency" in failures:
+        raise MediaError("Serverda yuklovchi o'rnatilmagan. Bot egasi requirements.txt paketlarini o'rnatishi kerak.")
+    if "timeout" in failures:
+        raise TimeoutError
     raise MediaError(
         "Media olinmadi. Alohida post yoki video linkini yuboring. Post o'chirilgan, yopiq, "
         "hajmi katta yoki sayt login talab qilayotgan bo'lishi mumkin."

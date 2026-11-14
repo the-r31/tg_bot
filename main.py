@@ -109,7 +109,7 @@ async def start(message: Message) -> None:
     await message.answer(
         "Salom! Rasm yoki video yuklash uchun post linkini yuboring.\n\n"
         "YouTube, TikTok, Instagram, X/Twitter, Threads, Reddit, Pinterest, Facebook va Vimeo.\n"
-        f"Video: 720p gacha. Har bir fayl: {MAX_FILE_SIZE_MB} MB gacha. "
+        f"Video: 1080p gacha. Har bir fayl: {MAX_FILE_SIZE_MB} MB gacha. "
         f"Bitta postdan {MAX_MEDIA_ITEMS} tagacha media.\n\n"
         "Profil yoki kanal emas, alohida post/video linkini yuboring. "
         "Ayrim postlar sayt cheklovlari sabab ishlamasligi mumkin."
@@ -149,7 +149,7 @@ async def handle_link(message: Message) -> None:
                         await edit_status(status, "Kesh yangilanmoqda. Linkni qayta yuboring.")
                         return
                 else:
-                    await edit_status(status, "Rasm/video yuklanmoqda (720p gacha)...")
+                    await edit_status(status, "Rasm/video yuklanmoqda (1080p gacha)...")
                     with tempfile.TemporaryDirectory(dir=DOWNLOADS_DIR) as directory:
                         paths = await download_media(url, Path(directory))
                         await edit_status(status, f"{len(paths)} ta media tayyor. Telegramga yuborilmoqda...")

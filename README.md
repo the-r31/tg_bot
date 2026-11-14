@@ -40,12 +40,18 @@ Mahalliy polling nusxasini bir vaqtda ishga tushirmang: u webhook'ni o'chiradi.
 ## Ishlash tafsilotlari
 
 - 3 ta ish parallel; jami 20 ta faol/navbatdagi so'rov. Har foydalanuvchiga bitta ish.
-- Video 720p gacha (yt-dlp), fayl 49 MiB gacha, postdan 10 tagacha media.
+- Video 1080p gacha (yt-dlp), fayl 49 MiB gacha, postdan 10 tagacha media.
+  Manbada mavjud sifat olinadi; past sifatli video 1080p ga sun'iy oshirilmaydi.
   Gallery-dl asl faylni oladi, uni qayta kodlamaydi.
 - Foto/video albom bo'lib jo'natiladi. Telegram qabul qilmagan format fayl sifatida yuboriladi.
 - Aynan bir xil URL qayta yuborilsa, Telegram `file_id` orqali qayta yuklamasdan jo'natiladi.
   Kesh xotirada 6 soat, ko'pi bilan 512 link; bot qayta ishga tushsa tozalanadi.
 - Yuklashga 180 soniya. Vaqt tugaganda yuklovchi va uning ffmpeg jarayonlari to'xtatiladi.
+- Birinchi yuklovchiga qolgan vaqtning yarmi ajratiladi; timeout bo'lsa ikkinchisi ham sinab ko'riladi.
+- Yuklovchi xatolari logda faqat xavfsiz toifa bilan chiqadi: `timeout`,
+  `access_denied`, `rate_limited`, `missing_dependency`, `download_failed`.
+  Login yoki sayt cheklovi bo'lsa bot tegishli xabar beradi; hosting almashtirish
+  bunday cheklovlarni avtomatik bartaraf etmaydi.
 - Vaqtinchalik fayllar so'rov oxirida tozalanadi. Limitdan ortiq media olinmaydi.
 
 Chegaralar `.env.example`da. `MAX_FILE_SIZE_MB` 49 dan katta bo'lsa avtomatik 49 ga

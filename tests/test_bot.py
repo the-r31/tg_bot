@@ -26,6 +26,12 @@ class UnitTests(unittest.TestCase):
         self.assertEqual(downloader.get_platform_url("https://example.com https://youtu.be/abc)."), "https://youtu.be/abc")
         self.assertEqual(downloader.get_platform_url("HTTPS://WWW.TIKTOK.COM/a#frag"), "https://www.tiktok.com/a")
 
+    def test_safe_error_categories(self):
+        self.assertEqual(downloader.error_category(b"HTTP 429 secret-url"), "rate_limited")
+        self.assertEqual(downloader.error_category(b"Redirect to login"), "access_denied")
+        self.assertEqual(downloader.error_category(b"No module named gallery_dl"), "missing_dependency")
+        self.assertEqual(downloader.error_category(b"private signed URL"), "download_failed")
+
     def test_cache_expiry_and_capacity(self):
         with patch.object(main, "CACHE_SIZE", 2):
             for url in ["a", "b", "c"]:
@@ -84,6 +90,35 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(main.url_locks)
         self.assertIn("uzoq", status.edit_text.call_args.args[0])
 
+    async def test_timeout_still_tries_fallback(self):
+        budgets = []
+        async def fake_run(args, folder, timeout):
+            budgets.append(timeout)
+            if "gallery_dl" in args:
+                raise TimeoutError
+            target = folder / "video"
+            target.mkdir()
+            (target / "clip.mp4").write_bytes(b"video")
+            return 0
+        with tempfile.TemporaryDirectory(dir=main.DOWNLOADS_DIR) as name, patch.object(downloader, "run_downloader", side_effect=fake_run), patch.object(downloader, "COOKIES_FILE", ""):
+            paths = await downloader.download_media("https://www.instagram.com/p/test/", Path(name))
+        self.assertEqual(paths[0].name, "clip.mp4")
+        self.assertEqual(len(budgets), 2)
+        self.assertLessEqual(budgets[0], downloader.DOWNLOAD_TIMEOUT / 2)
+
+    async def test_access_error_is_actionable(self):
+        with tempfile.TemporaryDirectory(dir=main.DOWNLOADS_DIR) as name, patch.object(downloader, "run_downloader", side_effect=downloader.DownloaderError("access_denied")), patch.object(downloader, "COOKIES_FILE", ""):
+            with self.assertRaisesRegex(downloader.MediaError, "login"):
+                await downloader.download_media("https://www.instagram.com/p/test/", Path(name))
+
+    async def test_diagnostics_are_bounded(self):
+        stream = asyncio.StreamReader()
+        stream.feed_data(b"x" * 50000 + b"HTTP 429")
+        stream.feed_eof()
+        result = await downloader.read_diagnostics(stream)
+        self.assertEqual(len(result), 16384)
+        self.assertEqual(downloader.error_category(result), "rate_limited")
+
     async def test_same_link_downloaded_once(self):
         async def fake_download(url, folder):
             await asyncio.sleep(0.02)
@@ -107,6 +142,8 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_timeout_stops_process(self):
         process = SimpleNamespace(returncode=None)
+        process.stderr = asyncio.StreamReader()
+        process.stderr.feed_eof()
         async def wait():
             await asyncio.sleep(10)
         process.wait = wait
