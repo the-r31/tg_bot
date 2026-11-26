@@ -22,6 +22,17 @@ DOMAINS = (
 )
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic",
               ".mp4", ".webm", ".mkv", ".mov", ".m4v"}
+# 1080p portrait is 1080x1920: either dimension may be the short edge.
+# '?' also accepts formats whose extractor does not supply dimensions.
+VIDEO_FORMAT = (
+    "(bv[ext=mp4][width<=?1080][aspect_ratio<=?1]/bv[ext=mp4][height<=?1080][aspect_ratio>=?1])+ba[ext=m4a]/"
+    "b[ext=mp4][vcodec!=none][width<=?1080][aspect_ratio<=?1]/"
+    "b[ext=mp4][vcodec!=none][height<=?1080][aspect_ratio>=?1]/"
+    "(bv[width<=?1080][aspect_ratio<=?1]/bv[height<=?1080][aspect_ratio>=?1])+ba/"
+    "b[vcodec!=none][width<=?1080][aspect_ratio<=?1]/"
+    "b[vcodec!=none][height<=?1080][aspect_ratio>=?1]"
+)
+RETRYABLE_ERRORS = {"extraction_failed", "network_error", "download_failed", "timeout"}
 
 
 class MediaError(Exception):
@@ -38,10 +49,18 @@ def error_category(output: bytes) -> str:
     text = output.decode("utf-8", errors="replace").lower()
     if "no module named" in text:
         return "missing_dependency"
-    if "429" in text or "too many requests" in text or "rate limit" in text:
+    if re.search(r"\b429\b", text) or "too many requests" in text or "rate limit" in text:
         return "rate_limited"
-    if any(value in text for value in ("login", "log in", "sign in", "401", "403", "cookies", "checkpoint")):
+    if re.search(r"\b(?:401|403)\b", text) or any(value in text for value in ("login", "log in", "sign in", "checkpoint")):
         return "access_denied"
+    if "requested format is not available" in text:
+        return "format_unavailable"
+    if any(value in text for value in ("timed out", "timeout", "connection reset", "connection refused", "unable to connect", "name resolution", "getaddrinfo failed")):
+        return "network_error"
+    if any(value in text for value in ("video not available", "video is unavailable", "video unavailable", "post is unavailable", "not found", "has been removed", "private video")):
+        return "unavailable"
+    if any(value in text for value in ("unable to extract", "failed to extract", "rehydration", "challenge")):
+        return "extraction_failed"
     return "download_failed"
 
 
@@ -148,7 +167,7 @@ async def download_media(url: str, folder: Path) -> list[Path]:
         "--concurrent-fragments", "4", "--max-filesize", str(MAX_FILE_SIZE_BYTES),
         "--match-filters", "!is_live", "--ffmpeg-location", imageio_ffmpeg.get_ffmpeg_exe(),
         "--merge-output-format", "mp4", "--restrict-filenames",
-        "-f", "bv[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv[height<=1080]+ba/b[height<=1080]",
+        "-f", VIDEO_FORMAT,
         "-o", str(folder / "video" / "%(playlist_index)03d-%(id)s.%(ext)s"),
     ]
     gallery = [
@@ -156,6 +175,7 @@ async def download_media(url: str, folder: Path) -> list[Path]:
         "--retries", "1", "--http-timeout", "20", "--range", f"1-{MAX_MEDIA_ITEMS}",
         "--directory", str(folder / "gallery"), "--windows-filenames",
         "-o", "extractor.videos=true",
+        "-o", "extractor.tiktok.audio=false",
     ]
     if COOKIES_FILE:
         if not Path(COOKIES_FILE).is_file():
@@ -166,11 +186,21 @@ async def download_media(url: str, folder: Path) -> list[Path]:
         yt += ["--cookies", str(local_cookies)]
         gallery += ["--cookies", str(local_cookies)]
     host = urlsplit(url).hostname or ""
+    is_tiktok = host == "tiktok.com" or host.endswith(".tiktok.com")
     photo_first = host.endswith(("instagram.com", "pinterest.com", "pin.it")) or "/photo/" in url
     strategies = [(gallery, "gallery"), (yt, "video")] if photo_first else [(yt, "video"), (gallery, "gallery")]
+    if is_tiktok and not photo_first:
+        # TikTok webpage/challenge failures are not retried by --extractor-retries.
+        # Use a separate folder so an unsuccessful attempt cannot leak partial media.
+        retry = yt.copy()
+        retry[retry.index("-o") + 1] = str(folder / "video_retry" / "%(playlist_index)03d-%(id)s.%(ext)s")
+        strategies.append((retry, "video_retry"))
     started = time.monotonic()
     failures = []
+    video_retryable = False
     for index, (args, subfolder) in enumerate(strategies):
+        if subfolder == "video_retry" and (not video_retryable or "rate_limited" in failures):
+            continue
         remaining = DOWNLOAD_TIMEOUT - (time.monotonic() - started)
         if remaining <= 0:
             raise TimeoutError
@@ -182,14 +212,21 @@ async def download_media(url: str, folder: Path) -> list[Path]:
         except (TimeoutError, DownloaderError) as exc:
             category = "timeout" if isinstance(exc, TimeoutError) else exc.category
             failures.append(category)
+            if subfolder == "video":
+                video_retryable = category in RETRYABLE_ERRORS
             logging.warning("Downloader=%s outcome=%s elapsed=%.1fs", subfolder, category, time.monotonic() - attempt_started)
             continue
         if code != 0:
             # Do not report a failed/partial download as a complete album.
+            failures.append("download_failed")
+            if subfolder == "video":
+                video_retryable = True
             continue
         paths = media_files(folder / subfolder)
         if paths:
             return paths
+        failures.append("empty_result")
+        logging.warning("Downloader=%s outcome=empty_result elapsed=%.1fs", subfolder, time.monotonic() - attempt_started)
     if "rate_limited" in failures:
         raise MediaError("Sayt so'rovlarni vaqtincha chekladi. Linkni ketma-ket yubormang, keyinroq urinib ko'ring.")
     if "access_denied" in failures:
@@ -198,6 +235,14 @@ async def download_media(url: str, folder: Path) -> list[Path]:
         raise MediaError("Serverda yuklovchi o'rnatilmagan. Bot egasi requirements.txt paketlarini o'rnatishi kerak.")
     if "timeout" in failures:
         raise TimeoutError
+    if "network_error" in failures:
+        raise MediaError("Saytga ulanib bo'lmadi. Birozdan keyin linkni qayta yuboring.")
+    if "extraction_failed" in failures:
+        raise MediaError("Saytdan media ma'lumotini olib bo'lmadi. Birozdan keyin qayta urinib ko'ring. Davom etsa bot egasi yuklovchi paketlarini yangilashi kerak.")
+    if "unavailable" in failures:
+        raise MediaError("Post mavjud emas yoki yopiq. Linkni brauzerda ochib tekshiring.")
+    if "format_unavailable" in failures:
+        raise MediaError("Bu post uchun mos video format topilmadi. Rasmli post bo'lsa, bot egasi gallery-dl paketini tekshirishi kerak.")
     raise MediaError(
         "Media olinmadi. Alohida post yoki video linkini yuboring. Post o'chirilgan, yopiq, "
         "hajmi katta yoki sayt login talab qilayotgan bo'lishi mumkin."

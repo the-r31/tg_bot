@@ -186,6 +186,8 @@ def check_configuration() -> None:
         raise RuntimeError(".env fayliga BOT_TOKEN=... kiriting.")
     if importlib.util.find_spec("gallery_dl") is None:
         logging.warning("gallery-dl o'rnatilmagan: rasm/albom yuklash cheklangan. pip install -r requirements.txt bajaring.")
+    if importlib.util.find_spec("curl_cffi") is None:
+        logging.warning("curl-cffi o'rnatilmagan: TikTok brauzer mosligi cheklangan. pip install -r requirements.txt bajaring.")
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 

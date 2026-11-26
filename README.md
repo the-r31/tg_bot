@@ -18,7 +18,7 @@ polling jarayonini ishlating. Terminal yopilsa bot ham to'xtaydi.
 
 ## Render Web Service
 
-Yangilangan `main.py`, `web_server.py` va `requirements.txt` fayllarini GitHub
+Yangilangan `downloader.py`, `main.py`, `web_server.py` va `requirements.txt` fayllarini GitHub
 repo'ga yuboring va Render'da **Manual Deploy → Deploy latest commit** bosing.
 
 - Build Command: `pip install -r requirements.txt`
@@ -41,6 +41,8 @@ Mahalliy polling nusxasini bir vaqtda ishga tushirmang: u webhook'ni o'chiradi.
 
 - 3 ta ish parallel; jami 20 ta faol/navbatdagi so'rov. Har foydalanuvchiga bitta ish.
 - Video 1080p gacha (yt-dlp), fayl 49 MiB gacha, postdan 10 tagacha media.
+  Tik videoda qisqa tomon hisoblanadi: 1080x1920 ham 1080p. O'lchami ko'rsatilmagan
+  format ham sinab ko'riladi; fayl hajmi cheklovi bunda ham amal qiladi.
   Manbada mavjud sifat olinadi; past sifatli video 1080p ga sun'iy oshirilmaydi.
   Gallery-dl asl faylni oladi, uni qayta kodlamaydi.
 - Foto/video albom bo'lib jo'natiladi. Telegram qabul qilmagan format fayl sifatida yuboriladi.
@@ -48,8 +50,14 @@ Mahalliy polling nusxasini bir vaqtda ishga tushirmang: u webhook'ni o'chiradi.
   Kesh xotirada 6 soat, ko'pi bilan 512 link; bot qayta ishga tushsa tozalanadi.
 - Yuklashga 180 soniya. Vaqt tugaganda yuklovchi va uning ffmpeg jarayonlari to'xtatiladi.
 - Birinchi yuklovchiga qolgan vaqtning yarmi ajratiladi; timeout bo'lsa ikkinchisi ham sinab ko'riladi.
+- TikTok video/qisqa linklarida vaqt 3 urinishga taqsimlanadi: yt-dlp, gallery-dl,
+  keyin vaqtinchalik tarmoq/ajratib olish xatosi bo'lsa yana yt-dlp. Har urinish
+  alohida jilddan foydalanadi; umumiy 180 soniyalik limit saqlanadi.
+- `yt-dlp[default,curl-cffi]` TikTok uchun brauzer mosligini ta'minlaydi.
+  `gallery-dl` rasmli TikTok postlarini ham yuklaydi; alohida fon audiosi olinmaydi.
 - Yuklovchi xatolari logda faqat xavfsiz toifa bilan chiqadi: `timeout`,
-  `access_denied`, `rate_limited`, `missing_dependency`, `download_failed`.
+  `access_denied`, `rate_limited`, `missing_dependency`, `download_failed`,
+  `network_error`, `extraction_failed`, `format_unavailable`, `unavailable`, `empty_result`.
   Login yoki sayt cheklovi bo'lsa bot tegishli xabar beradi; hosting almashtirish
   bunday cheklovlarni avtomatik bartaraf etmaydi.
 - Vaqtinchalik fayllar so'rov oxirida tozalanadi. Limitdan ortiq media olinmaydi.
@@ -61,6 +69,10 @@ Login kerak bo'lsa, o'zingizning Netscape formatidagi cookies faylingizni
 `COOKIES_FILE=cookies.txt` orqali ko'rsatishingiz mumkin. Cookie/tokenni ulashmang.
 YouTube ayrim linklar uchun yt-dlp qo'llaydigan JavaScript runtime (masalan Deno)
 talab qilishi mumkin: https://github.com/yt-dlp/yt-dlp/wiki/EJS
+
+Paketlarni yangilagandan yoki kodni almashtirgandan keyin ishlayotgan botni
+qayta ishga tushiring. Render'da yangi commitni deploy qiling: mahalliy
+virtual muhitni yangilash Render'dagi botni o'zgartirmaydi.
 
 ## Tekshiruv
 

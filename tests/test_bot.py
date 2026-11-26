@@ -55,6 +55,10 @@ class UnitTests(unittest.TestCase):
 
 class AsyncTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        # These tests mock the downloader; probing a native ffmpeg is unnecessary.
+        ffmpeg = patch.object(downloader.imageio_ffmpeg, "get_ffmpeg_exe", return_value="ffmpeg")
+        ffmpeg.start()
+        self.addCleanup(ffmpeg.stop)
         main.cache.clear()
         main.active_users.clear()
         main.url_locks.clear()
